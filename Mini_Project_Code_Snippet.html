@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Load Geotiff with Yearly Transition Slider</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <style>
+        body { margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; }
+        #map { flex-grow: 1; width: 100%; }
+        /* Overlay Heading styles */
+        .overlay-heading {
+        position: absolute;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(255, 255, 255, 0.7); /* Semi-transparent background */
+        padding: 10px 20px;
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+        border-radius: 5px;
+        z-index: 1000; /* Ensure the heading stays on top of the map */
+        }
+        #fileInput { position: absolute; bottom: 20px; left: 20px; z-index: 1000; padding: 10px; background-color: white; border-radius: 5px; }
+        #layerToggle { position: absolute; top: 20px; right: 20px; z-index: 1000; padding: 10px; background-color: white; border-radius: 5px; }
+        #sliderContainer { position: absolute; bottom: 20px; right: 20px; z-index: 1000; padding: 10px; background-color: white; border-radius: 5px; }
+        #slider { width: 200px; }
+        .legend-box { position: absolute; top: 50%; left: 20px; transform: translateY(-50%); background-color: white; border: 1px solid #ccc; border-radius: 5px; padding: 10px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); z-index: 1000; }
+        .legend-title { font-weight: bold; font-size: 16px; margin-bottom: 10px; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 5px; }
+        .legend-color { width: 20px; height: 20px; margin-right: 10px; border: 1px solid black; }
+        .waterbody { background-color: blue; }
+        .trees { background-color: darkgreen; }
+        .flooded-vegetation { background-color: lightyellow; }
+        .crops { background-color: limegreen; }
+        .built_up { background-color: red; }
+        .ground { background-color: lightcoral; }
+        .rangeland { background-color: palegoldenrod; }
+    </style>
+</head>
+<body>
+    <!-- Heading overlay -->
+  <div align="center" class="overlay-heading">Leaflet Map - Terrain LULC change Detection Using Slider</div>
+    <div id="map"></div>
+    <div class="legend-box">
+        <div class="legend-title">Legend</div>
+        <div class="legend-item"><div class="legend-color waterbody"></div>Waterbody</div>
+        <div class="legend-item"><div class="legend-color trees"></div>Trees</div>
+        <div class="legend-item"><div class="legend-color flooded-vegetation"></div>Flooded Vegetation</div>
+        <div class="legend-item"><div class="legend-color crops"></div>Crops</div>
+        <div class="legend-item"><div class="legend-color built_up"></div>Built Up</div>
+        <div class="legend-item"><div class="legend-color ground"></div>Ground</div>
+        <div class="legend-item"><div class="legend-color rangeland"></div>Rangeland</div>
+    </div>
+    <input type="file" id="fileInput" accept=".tif" multiple />
+    <div id="layerToggle">
+        <h3>Toggle Layers</h3>
+        <ul id="layerList"></ul>
+    </div>
+    <div id="sliderContainer">
+        <label for="slider">Year: <span id="sliderYear">2017</span></label>
+        <input type="range" id="slider" min="2017" max="2023" step="1" value="2017" />
+    </div>
+    <script src="https://unpkg.com/georaster"></script>
+    <script src="https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js"></script>
+    <script src="https://unpkg.com/geoblaze"></script>
+    <script>
+        var map = L.map("map").setView([13.08, 80.27], 7);
+        var googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+            maxZoom: 20,
+            subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+            attribution: '© Google Hybrid'
+        }).addTo(map);
+
+        var layers = [];
+        var layerMap = {};
+
+        function loadFilesSequentially(files, index = 0) {
+            if (index >= files.length) return;
+            var file = files[index];
+            var year = 2017 + index;
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                var arrayBuffer = e.target.result;
+                parseGeoraster(arrayBuffer).then((georaster) => {
+                    var layer = new GeoRasterLayer({
+                        georaster: georaster,
+                        opacity: year === 2017 ? 1 : 0,
+                        resolution: 300,
+                        pixelValuesToColorFn: function (value) {
+                            if (value == 1) return "#012bff";
+                            else if (value == 2) return "#066729";
+                            else if (value == 4) return "#fbf845";
+                            else if (value == 5) return "#85fb45";
+                            else if (value == 7) return "#fb1f09";
+                            else if (value == 8) return "#ffa097";
+                            else if (value == 11) return "#ffbe52";
+                            else return "transparent";
+                        },
+                    });
+                    layers[year] = layer;
+                    layer.addTo(map);
+                    if (year === 2017) map.fitBounds(layer.getBounds());
+                    var layerItem = document.createElement("li");
+                    layerItem.innerHTML = `<label><input type="checkbox" checked data-layer-id="${year}" /> ${file.name} (${year})</label>`;
+                    document.getElementById("layerList").appendChild(layerItem);
+                    layerItem.querySelector("input").addEventListener("change", function (e) {
+                        if (e.target.checked) layer.addTo(map);
+                        else layer.remove();
+                    });
+                    loadFilesSequentially(files, index + 1);
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        document.getElementById("fileInput").addEventListener("change", function (event) {
+            var files = Array.from(event.target.files);
+            files.sort((a, b) => a.name.localeCompare(b.name));
+            loadFilesSequentially(files);
+        });
+
+        var slider = document.getElementById("slider");
+        var sliderYear = document.getElementById("sliderYear");
+
+        slider.addEventListener("input", function () {
+            var year = parseInt(slider.value);
+            sliderYear.textContent = year;
+            Object.keys(layers).forEach((key) => {
+                var layer = layers[key];
+                if (parseInt(key) === year) layer.setOpacity(1);
+                else layer.setOpacity(0);
+            });
+        });
+    </script>
+</body>
+</html>
